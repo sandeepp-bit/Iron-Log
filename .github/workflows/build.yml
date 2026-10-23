@@ -1,0 +1,558 @@
+name: Build Iron Log APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Create the Android project
+        run: |
+          mkdir -p app/src/main/assets app/src/main/java/com/ironlog/app app/src/main/res/drawable
+          cp index.html app/src/main/assets/index.html
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "IronLog"
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.11.1' apply false
+              id 'org.jetbrains.kotlin.android' version '2.1.21' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3g
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+          android {
+              namespace 'com.ironlog.app'
+              compileSdk 36
+              defaultConfig {
+                  applicationId 'com.ironlog.app'
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 3
+                  versionName '1.2'
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              lint { abortOnError false; checkReleaseBuilds false }
+          }
+          kotlin { jvmToolchain(17) }
+          dependencies {
+              implementation 'androidx.health.connect:connect-client:1.1.0'
+              implementation 'androidx.activity:activity-ktx:1.10.1'
+              implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.9.1'
+              implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.health.READ_STEPS"/>
+              <uses-permission android:name="android.permission.health.READ_DISTANCE"/>
+              <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED"/>
+              <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED"/>
+              <uses-permission android:name="android.permission.health.READ_HEART_RATE"/>
+              <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE"/>
+              <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY"/>
+              <uses-permission android:name="android.permission.health.READ_SLEEP"/>
+              <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION"/>
+              <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE"/>
+              <uses-permission android:name="android.permission.health.READ_WEIGHT"/>
+              <uses-permission android:name="android.permission.health.READ_BODY_FAT"/>
+              <uses-permission android:name="android.permission.health.READ_EXERCISE"/>
+              <queries>
+                  <package android:name="com.google.android.apps.healthdata"/>
+              </queries>
+              <application
+                  android:label="Iron Log"
+                  android:icon="@drawable/ic_launcher"
+                  android:allowBackup="true"
+                  android:usesCleartextTraffic="true"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <activity
+                      android:name=".PrivacyActivity"
+                      android:exported="true"
+                      android:label="Iron Log privacy">
+                      <intent-filter>
+                          <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+                      </intent-filter>
+                  </activity>
+                  <activity-alias
+                      android:name="ViewPermissionUsageActivity"
+                      android:exported="true"
+                      android:targetActivity=".PrivacyActivity"
+                      android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
+                          <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
+                      </intent-filter>
+                  </activity-alias>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="48dp" android:height="48dp"
+              android:viewportWidth="48" android:viewportHeight="48">
+              <path android:fillColor="#1D4FD8" android:pathData="M10,2h28a8,8 0 0 1 8,8v28a8,8 0 0 1 -8,8h-28a8,8 0 0 1 -8,-8v-28a8,8 0 0 1 8,-8z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M8,19h4v10h-4z M13,15h5v18h-5z M18,22h12v4h-12z M30,15h5v18h-5z M36,19h4v10h-4z"/>
+          </vector>
+          EOF
+
+          cat > app/src/main/java/com/ironlog/app/PrivacyActivity.kt <<'EOF'
+          package com.ironlog.app
+
+          import android.app.Activity
+          import android.os.Bundle
+          import android.widget.ScrollView
+          import android.widget.TextView
+
+          class PrivacyActivity : Activity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val t = TextView(this)
+                  t.setPadding(48, 96, 48, 48)
+                  t.textSize = 16f
+                  t.text = "Iron Log privacy\n\n" +
+                      "Iron Log reads steps, distance, calories, heart rate, resting heart rate, HRV, sleep, " +
+                      "oxygen saturation, breathing rate, weight, body fat and workouts from Health Connect " +
+                      "to show them next to your training and diet log.\n\n" +
+                      "It only reads this data. It never writes to or deletes anything in Health Connect.\n\n" +
+                      "Everything stays on this phone. Iron Log has no servers and does not send your health " +
+                      "data anywhere.\n\n" +
+                      "You can remove access at any time in Health Connect > App permissions > Iron Log."
+                  val s = ScrollView(this)
+                  s.addView(t)
+                  setContentView(s)
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/ironlog/app/MainActivity.kt <<'EOF'
+          package com.ironlog.app
+
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.webkit.JavascriptInterface
+          import android.webkit.WebResourceRequest
+          import android.webkit.WebResourceResponse
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import androidx.activity.ComponentActivity
+          import androidx.activity.OnBackPressedCallback
+          import androidx.activity.result.ActivityResultLauncher
+          import androidx.health.connect.client.HealthConnectClient
+          import androidx.health.connect.client.PermissionController
+          import androidx.health.connect.client.aggregate.AggregateMetric
+          import androidx.health.connect.client.permission.HealthPermission
+          import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+          import androidx.health.connect.client.records.BodyFatRecord
+          import androidx.health.connect.client.records.DistanceRecord
+          import androidx.health.connect.client.records.ExerciseSessionRecord
+          import androidx.health.connect.client.records.HeartRateRecord
+          import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
+          import androidx.health.connect.client.records.OxygenSaturationRecord
+          import androidx.health.connect.client.records.Record
+          import androidx.health.connect.client.records.RespiratoryRateRecord
+          import androidx.health.connect.client.records.RestingHeartRateRecord
+          import androidx.health.connect.client.records.SleepSessionRecord
+          import androidx.health.connect.client.records.StepsRecord
+          import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
+          import androidx.health.connect.client.records.WeightRecord
+          import androidx.health.connect.client.request.AggregateRequest
+          import androidx.health.connect.client.request.ReadRecordsRequest
+          import androidx.health.connect.client.time.TimeRangeFilter
+          import androidx.lifecycle.lifecycleScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.ByteArrayInputStream
+          import java.io.ByteArrayOutputStream
+          import java.io.File
+          import java.io.FileInputStream
+          import java.io.FileOutputStream
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.security.MessageDigest
+          import java.time.LocalDate
+          import java.time.ZoneId
+          import java.util.Locale
+          import kotlin.math.roundToInt
+          import kotlin.reflect.KClass
+
+          class MainActivity : ComponentActivity() {
+              private lateinit var web: WebView
+              @Volatile private var busy = false
+              private lateinit var permLauncher: ActivityResultLauncher<Set<String>>
+
+              private val hcPackage = "com.google.android.apps.healthdata"
+              private val types: List<KClass<out Record>> = listOf(
+                  StepsRecord::class, DistanceRecord::class, ActiveCaloriesBurnedRecord::class,
+                  TotalCaloriesBurnedRecord::class, HeartRateRecord::class, RestingHeartRateRecord::class,
+                  HeartRateVariabilityRmssdRecord::class, SleepSessionRecord::class, OxygenSaturationRecord::class,
+                  RespiratoryRateRecord::class, WeightRecord::class, BodyFatRecord::class, ExerciseSessionRecord::class
+              )
+              private val perms: Set<String> = types.map { HealthPermission.getReadPermission(it) }.toSet()
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  permLauncher = registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
+                      js("window.ironHealthPerms&&ironHealthPerms(" + granted.intersect(perms).size + "," + perms.size + ")")
+                  }
+                  web = WebView(this)
+                  setContentView(web)
+                  web.settings.javaScriptEnabled = true
+                  web.settings.domStorageEnabled = true
+                  web.settings.allowFileAccess = true
+                  web.addJavascriptInterface(Bridge(), "IronNative")
+                  web.webViewClient = object : WebViewClient() {
+                      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                          val u = request.url
+                          if (u.scheme == "file") return false
+                          try { startActivity(Intent(Intent.ACTION_VIEW, u)) } catch (e: Exception) { }
+                          return true
+                      }
+
+                      override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                          val u = request.url
+                          if (u.host != "ironlog.photos") return null
+                          val name = u.lastPathSegment
+                          if (name == null || name.contains("..") || name.contains("/")) return notFound()
+                          val f = File(File(filesDir, "photos"), name)
+                          return try { WebResourceResponse(mime(name), null, FileInputStream(f)) } catch (e: Exception) { notFound() }
+                      }
+                  }
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() {
+                          if (web.canGoBack()) web.goBack() else finish()
+                      }
+                  })
+                  if (savedInstanceState != null) web.restoreState(savedInstanceState)
+                  else web.loadUrl("file:///android_asset/index.html")
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  if (::web.isInitialized) js("window.ironHealthResume&&ironHealthResume()")
+              }
+
+              override fun onSaveInstanceState(outState: Bundle) {
+                  super.onSaveInstanceState(outState)
+                  web.saveState(outState)
+              }
+
+              private fun js(code: String) {
+                  runOnUiThread { web.evaluateJavascript(code, null) }
+              }
+
+              private fun notFound(): WebResourceResponse =
+                  WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, ByteArrayInputStream(ByteArray(0)))
+
+              private fun mime(name: String): String {
+                  val n = name.lowercase(Locale.ROOT)
+                  return when {
+                      n.endsWith(".png") -> "image/png"
+                      n.endsWith(".gif") -> "image/gif"
+                      else -> "image/jpeg"
+                  }
+              }
+
+              private fun sdkStatus(): String = when (HealthConnectClient.getSdkStatus(this, hcPackage)) {
+                  HealthConnectClient.SDK_AVAILABLE -> "ok"
+                  HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "update"
+                  else -> "none"
+              }
+
+              private fun openStore() {
+                  val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$hcPackage"))
+                  market.setPackage("com.android.vending")
+                  try { startActivity(market) } catch (e: Exception) {
+                      try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$hcPackage"))) } catch (e2: Exception) { }
+                  }
+              }
+
+              private fun openHealthConnect() {
+                  val actions = listOf(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS, "android.health.connect.action.HEALTH_HOME_SETTINGS")
+                  for (a in actions) {
+                      try { startActivity(Intent(a)); return } catch (e: Exception) { }
+                  }
+                  openStore()
+              }
+
+              private fun r1(v: Double): Double = (v * 10).roundToInt() / 10.0
+
+              private suspend fun readDays(json: String): String {
+                  val res = JSONObject()
+                  if (sdkStatus() != "ok") return res.toString()
+                  val client = HealthConnectClient.getOrCreate(this)
+                  val granted: Set<String> = try { client.permissionController.getGrantedPermissions() } catch (e: Exception) { emptySet() }
+                  fun has(c: KClass<out Record>): Boolean = granted.contains(HealthPermission.getReadPermission(c))
+                  val zone = ZoneId.systemDefault()
+                  val dates = JSONArray(json)
+                  for (i in 0 until dates.length()) {
+                      val d = dates.getString(i)
+                      val o = JSONObject()
+                      try {
+                          val day = LocalDate.parse(d)
+                          val range = TimeRangeFilter.between(day.atStartOfDay(zone).toInstant(), day.plusDays(1).atStartOfDay(zone).toInstant())
+                          val m = mutableSetOf<AggregateMetric<*>>()
+                          if (has(StepsRecord::class)) m.add(StepsRecord.COUNT_TOTAL)
+                          if (has(DistanceRecord::class)) m.add(DistanceRecord.DISTANCE_TOTAL)
+                          if (has(ActiveCaloriesBurnedRecord::class)) m.add(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)
+                          if (has(TotalCaloriesBurnedRecord::class)) m.add(TotalCaloriesBurnedRecord.ENERGY_TOTAL)
+                          if (has(HeartRateRecord::class)) { m.add(HeartRateRecord.BPM_AVG); m.add(HeartRateRecord.BPM_MIN); m.add(HeartRateRecord.BPM_MAX) }
+                          if (has(RestingHeartRateRecord::class)) m.add(RestingHeartRateRecord.BPM_AVG)
+                          if (has(ExerciseSessionRecord::class)) m.add(ExerciseSessionRecord.EXERCISE_DURATION_TOTAL)
+                          if (m.isNotEmpty()) {
+                              val a = client.aggregate(AggregateRequest(m, range))
+                              a[StepsRecord.COUNT_TOTAL]?.let { if (it > 0) o.put("steps", it) }
+                              a[DistanceRecord.DISTANCE_TOTAL]?.let { if (it.inKilometers > 0) o.put("km", r1(it.inKilometers)) }
+                              a[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.let { if (it.inKilocalories > 0) o.put("activeKcal", it.inKilocalories.roundToInt()) }
+                              a[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.let { if (it.inKilocalories > 0) o.put("totalKcal", it.inKilocalories.roundToInt()) }
+                              a[HeartRateRecord.BPM_AVG]?.let { o.put("hrAvg", it) }
+                              a[HeartRateRecord.BPM_MIN]?.let { o.put("hrMin", it) }
+                              a[HeartRateRecord.BPM_MAX]?.let { o.put("hrMax", it) }
+                              a[RestingHeartRateRecord.BPM_AVG]?.let { o.put("hrRest", it) }
+                              a[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]?.let { o.put("exMin", it.toMinutes()) }
+                          }
+                          if (has(SleepSessionRecord::class)) {
+                              val night = TimeRangeFilter.between(
+                                  day.minusDays(1).atTime(18, 0).atZone(zone).toInstant(),
+                                  day.atTime(18, 0).atZone(zone).toInstant())
+                              val a = client.aggregate(AggregateRequest(setOf(SleepSessionRecord.SLEEP_DURATION_TOTAL), night))
+                              a[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.let { if (it.toMinutes() > 0) o.put("sleepH", r1(it.toMinutes() / 60.0)) }
+                          }
+                          if (has(HeartRateVariabilityRmssdRecord::class)) {
+                              val r = client.readRecords(ReadRecordsRequest(HeartRateVariabilityRmssdRecord::class, range)).records
+                              if (r.isNotEmpty()) o.put("hrv", r.map { it.heartRateVariabilityMillis }.average().roundToInt())
+                          }
+                          if (has(OxygenSaturationRecord::class)) {
+                              val r = client.readRecords(ReadRecordsRequest(OxygenSaturationRecord::class, range)).records
+                              if (r.isNotEmpty()) o.put("spo2", r1(r.map { it.percentage.value }.average()))
+                          }
+                          if (has(RespiratoryRateRecord::class)) {
+                              val r = client.readRecords(ReadRecordsRequest(RespiratoryRateRecord::class, range)).records
+                              if (r.isNotEmpty()) o.put("resp", r1(r.map { it.rate }.average()))
+                          }
+                          if (has(WeightRecord::class)) {
+                              val r = client.readRecords(ReadRecordsRequest(WeightRecord::class, range)).records
+                              r.maxByOrNull { it.time }?.let { o.put("weightKg", r1(it.weight.inKilograms)) }
+                          }
+                          if (has(BodyFatRecord::class)) {
+                              val r = client.readRecords(ReadRecordsRequest(BodyFatRecord::class, range)).records
+                              r.maxByOrNull { it.time }?.let { o.put("bodyFat", r1(it.percentage.value)) }
+                          }
+                      } catch (e: Exception) { }
+                      if (o.length() > 0) res.put(d, o)
+                  }
+                  return res.toString()
+              }
+
+              private fun get(url: String): ByteArray {
+                  val c = URL(url).openConnection() as HttpURLConnection
+                  c.connectTimeout = 15000
+                  c.readTimeout = 20000
+                  c.instanceFollowRedirects = true
+                  c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) IronLog/1.2")
+                  try {
+                      c.inputStream.use { input ->
+                          val out = ByteArrayOutputStream()
+                          val buf = ByteArray(16384)
+                          while (true) {
+                              val n = input.read(buf)
+                              if (n <= 0) break
+                              out.write(buf, 0, n)
+                              if (out.size() > 4000000) break
+                          }
+                          return out.toByteArray()
+                      }
+                  } finally {
+                      c.disconnect()
+                  }
+              }
+
+              private fun md5(d: ByteArray): String =
+                  MessageDigest.getInstance("MD5").digest(d).joinToString("") { "%02x".format(it) }
+
+              private fun ext(src: String): String {
+                  val p = src.lowercase(Locale.ROOT).substringBefore("?")
+                  val i = p.lastIndexOf('.')
+                  return if (i >= 0) p.substring(i) else ".jpg"
+              }
+
+              private fun status(text: String) {
+                  js("(function(){var m=document.getElementById('phmsg');if(m)m.textContent=" + JSONObject.quote(text) + ";})()")
+              }
+
+              private fun downloadPhotos(json: String) {
+                  val result = JSONObject()
+                  try {
+                      val map = JSONObject(json)
+                      val keys = map.keys().asSequence().toList()
+                      val img = Regex("<img[^>]*?src\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+                      val pageImgs = LinkedHashMap<String, List<String>>()
+                      val urlCount = HashMap<String, Int>()
+                      keys.forEachIndexed { i, k ->
+                          status("Finding photos… " + (i + 1) + " of " + keys.size + " exercises")
+                          val found = LinkedHashSet<String>()
+                          try {
+                              val base = "http://www.gurumann.com/" + map.getString(k) + ".html"
+                              val html = String(get(base), Charsets.ISO_8859_1)
+                              for (m in img.findAll(html)) {
+                                  val src = URL(URL(base), m.groupValues[1].trim()).toString()
+                                  val low = src.lowercase(Locale.ROOT)
+                                  val path = low.substringBefore("?")
+                                  if (!(path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") || path.endsWith(".gif"))) continue
+                                  if (low.contains("shapes") || low.contains("homestead.com") || path.endsWith("/tp.gif")) continue
+                                  found.add(src)
+                              }
+                          } catch (e: Exception) { }
+                          pageImgs[k] = found.toList()
+                          for (src in found) urlCount[src] = (urlCount[src] ?: 0) + 1
+                      }
+                      val data = HashMap<String, ByteArray>()
+                      val urlHash = HashMap<String, String>()
+                      val hashPages = HashMap<String, MutableSet<String>>()
+                      keys.forEachIndexed { i, k ->
+                          status("Downloading… " + (i + 1) + " of " + keys.size + " exercises")
+                          for (src in pageImgs[k] ?: emptyList()) {
+                              if ((urlCount[src] ?: 0) > 1) continue
+                              try {
+                                  val d = get(src)
+                                  if (d.size < 8000) continue
+                                  val h = md5(d)
+                                  data[src] = d
+                                  urlHash[src] = h
+                                  hashPages.getOrPut(h) { HashSet() }.add(k)
+                              } catch (e: Exception) { }
+                          }
+                      }
+                      val dir = File(filesDir, "photos")
+                      dir.mkdirs()
+                      dir.listFiles()?.forEach { it.delete() }
+                      for (k in keys) {
+                          val arr = JSONArray()
+                          for (src in pageImgs[k] ?: emptyList()) {
+                              if (arr.length() >= 4) break
+                              val d = data[src] ?: continue
+                              if ((hashPages[urlHash[src]]?.size ?: 0) > 1) continue
+                              val name = k + "_" + arr.length() + ext(src)
+                              try {
+                                  FileOutputStream(File(dir, name)).use { it.write(d) }
+                                  arr.put(name)
+                              } catch (e: Exception) { }
+                          }
+                          if (arr.length() > 0) result.put(k, arr)
+                      }
+                  } catch (e: Exception) { }
+                  js("window.ironPhotosDone&&ironPhotosDone(" + JSONObject.quote(result.toString()) + ")")
+              }
+
+              inner class Bridge {
+                  @JavascriptInterface
+                  fun cachePhotos(json: String) {
+                      if (busy) return
+                      busy = true
+                      Thread { try { downloadPhotos(json) } finally { busy = false } }.start()
+                  }
+
+                  @JavascriptInterface
+                  fun healthStatus(): String = sdkStatus()
+
+                  @JavascriptInterface
+                  fun healthConnect() {
+                      runOnUiThread {
+                          if (sdkStatus() == "ok") {
+                              try { permLauncher.launch(perms) } catch (e: Exception) { openHealthConnect() }
+                          } else openStore()
+                      }
+                  }
+
+                  @JavascriptInterface
+                  fun healthManage() { runOnUiThread { openHealthConnect() } }
+
+                  @JavascriptInterface
+                  fun healthCheck() {
+                      lifecycleScope.launch(Dispatchers.IO) {
+                          val n = try {
+                              if (sdkStatus() == "ok") HealthConnectClient.getOrCreate(this@MainActivity)
+                                  .permissionController.getGrantedPermissions().intersect(perms).size else 0
+                          } catch (e: Exception) { 0 }
+                          js("window.ironHealthPerms&&ironHealthPerms(" + n + "," + perms.size + ")")
+                      }
+                  }
+
+                  @JavascriptInterface
+                  fun healthRead(datesJson: String) {
+                      lifecycleScope.launch(Dispatchers.IO) {
+                          val out = try { readDays(datesJson) } catch (e: Exception) { "{}" }
+                          js("window.ironHealthData&&ironHealthData(" + JSONObject.quote(out) + ")")
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Build the APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk IronLog.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IronLog-apk
+          path: IronLog.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Iron Log build ${{ github.run_number }}
+          files: IronLog.apk
